@@ -1,8 +1,9 @@
-from sqlalchemy import select
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Conversation, Message, User, UserPreference
-
+from app.database.models import Conversation, Memory, Message, User, UserPreference
 
 class UserRepository:
     def __init__(self, session: AsyncSession):
@@ -58,3 +59,63 @@ class ConversationRepository:
         )
         messages = (await self.session.execute(stmt)).scalars().all()
         return list(reversed(messages))
+
+
+class MemoryRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get(self, user_id: int, memory_id: int) -> Memory | None:
+        stmt = select(Memory).where(Memory.user_id == user_id, Memory.id == memory_id)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def update(
+        self, user_id: int, memory_id: int, content: str, expires_at: datetime | None = None
+    ) -> Memory:
+        memory = await self.get(user_id, memory_id)
+        if memory is None:
+            raise ValueError(f"Không tìm thấy ký ức id={memory_id}")
+        memory.content = content.strip()[:500]
+        memory.expires_at = expires_at
+        await self.session.commit()
+        return memory
+
+    async def delete(self, user_id: int, memory_id: int) -> bool:
+        memory = await self.get(user_id, memory_id)
+        if memory is None:
+            return False
+        await self.session.delete(memory)
+        await self.session.commit()
+        return True
+
+    async def add(self, user_id: int, content: str, expires_at: datetime | None = None) -> Memory:
+        content = content.strip()[:500]
+        if not content:
+            raise ValueError("Nội dung ký ức rỗng")          # T33 validation
+        stmt = select(Memory).where(Memory.user_id == user_id, Memory.content == content)
+        existing = (await self.session.execute(stmt)).scalar_one_or_none()
+        if existing:
+            return existing                                    # trùng -> bỏ qua
+        memory = Memory(user_id=user_id, content=content, expires_at=expires_at)
+        self.session.add(memory)
+        await self.session.commit()
+        return memory
+
+    async def list_active(self, user_id: int, limit: int = 20) -> list[Memory]:
+        now = datetime.now(UTC).replace(tzinfo=None)           # khớp func.now() của Postgres (UTC, naive)
+        stmt = (
+            select(Memory)
+            .where(Memory.user_id == user_id)
+            .where((Memory.expires_at.is_(None)) | (Memory.expires_at > now))
+            .order_by(Memory.id.desc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def cleanup_expired(self) -> int:                    # T36
+        now = datetime.now(UTC).replace(tzinfo=None)
+        result = await self.session.execute(
+            delete(Memory).where(Memory.expires_at.is_not(None), Memory.expires_at <= now)
+        )
+        await self.session.commit()
+        return result.rowcount or 0
