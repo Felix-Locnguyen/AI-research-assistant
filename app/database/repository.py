@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Conversation, Memory, Message, User, UserPreference
+from app.database.models import Article, Conversation, Memory, Message, Reminder, User, UserPreference
 
 class UserRepository:
     def __init__(self, session: AsyncSession):
@@ -17,6 +17,10 @@ class UserRepository:
             self.session.add(user)
             await self.session.commit()
         return user
+
+    async def get(self, user_id: int) -> User | None:
+        stmt = select(User).where(User.id == user_id)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def get_preferences(self, user_id: int) -> dict[str, str]:
         stmt = select(UserPreference).where(UserPreference.user_id == user_id)
@@ -119,3 +123,113 @@ class MemoryRepository:
         )
         await self.session.commit()
         return result.rowcount or 0
+
+
+class ArticleRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_url(self, url: str) -> Article | None:
+        stmt = select(Article).where(Article.url == url)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def add(
+        self,
+        title: str,
+        url: str,
+        source: str | None = None,
+        published_at: datetime | None = None,
+        summary: str | None = None,
+        user_id: int | None = None,
+    ) -> Article:
+        existing = await self.get_by_url(url)
+        if existing:                       # T42: URL trùng -> không lưu lại
+            return existing
+        article = Article(
+            title=title.strip()[:500],
+            url=url,
+            source=source,
+            published_at=published_at,
+            summary=summary,
+            user_id=user_id,
+        )
+        self.session.add(article)
+        await self.session.commit()
+        return article
+
+    async def set_summary(self, article_id: int, summary: str) -> None:
+        stmt = select(Article).where(Article.id == article_id)
+        article = (await self.session.execute(stmt)).scalar_one_or_none()
+        if article is not None:
+            article.summary = summary
+            await self.session.commit()
+
+    async def recent_for_user(self, user_id: int, limit: int = 20) -> list[Article]:
+        stmt = (
+            select(Article)
+            .where(Article.user_id == user_id)
+            .order_by(Article.id.desc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+
+class ReminderRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, user_id: int, text: str, remind_at: datetime, repeat: str = "none") -> Reminder:
+        reminder = Reminder(user_id=user_id, text=text.strip()[:1000], remind_at=remind_at, repeat=repeat)
+        self.session.add(reminder)
+        await self.session.commit()
+        return reminder
+
+    async def get(self, user_id: int, reminder_id: int) -> Reminder | None:
+        stmt = select(Reminder).where(Reminder.user_id == user_id, Reminder.id == reminder_id)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def update(
+        self,
+        user_id: int,
+        reminder_id: int,
+        text: str | None = None,
+        remind_at: datetime | None = None,
+        repeat: str | None = None,
+    ) -> Reminder:
+        reminder = await self.get(user_id, reminder_id)
+        if reminder is None:
+            raise ValueError(f"Không tìm thấy lời nhắc id={reminder_id}")
+        if text is not None:
+            reminder.text = text.strip()[:1000]
+        if remind_at is not None:
+            reminder.remind_at = remind_at
+        if repeat is not None:
+            reminder.repeat = repeat
+        await self.session.commit()
+        return reminder
+
+    async def delete(self, user_id: int, reminder_id: int) -> bool:
+        reminder = await self.get(user_id, reminder_id)
+        if reminder is None:
+            return False
+        await self.session.delete(reminder)
+        await self.session.commit()
+        return True
+
+    async def list_for_user(self, user_id: int, limit: int = 20) -> list[Reminder]:
+        stmt = (
+            select(Reminder)
+            .where(Reminder.user_id == user_id, Reminder.is_done.is_(False))
+            .order_by(Reminder.remind_at.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def list_due(self, now: datetime, limit: int = 50) -> list[Reminder]:
+        stmt = (
+            select(Reminder)
+            .where(Reminder.is_done.is_(False), Reminder.remind_at <= now)
+            .order_by(Reminder.remind_at.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())

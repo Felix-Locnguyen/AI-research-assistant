@@ -64,6 +64,7 @@ class Reminder(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     text: Mapped[str] = mapped_column(Text)
     remind_at: Mapped[datetime] = mapped_column(DateTime)
+    repeat: Mapped[str] = mapped_column(String(16), default="none")  # none / daily / weekly (T52)
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
