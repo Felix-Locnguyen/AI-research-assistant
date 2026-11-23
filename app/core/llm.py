@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 1  # 1s, 2s, 4s
 REQUEST_TIMEOUT_SECONDS = 30
-TRANSIENT_CODES = {500, 502, 503, 504}  # 429 bỏ ra: quota hết thì retry chỉ tốn thêm quota
+TRANSIENT_CODES = {500, 502, 503, 504}  
 
 _client: genai.Client | None = None
 

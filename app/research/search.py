@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from ddgs import DDGS
 from ddgs.exceptions import DDGSException
 
+from app.core.ratelimit import SEARCH_GATE
+
 logger = logging.getLogger(__name__)
 
 MAX_RESULTS = 5
@@ -42,7 +44,8 @@ async def web_search(query: str, max_results: int = MAX_RESULTS) -> list[SearchH
     """Tìm kiếm web, trả về danh sách kết quả (title/url/snippet). Có thử lại khi bị rate-limit."""
     for attempt in range(MAX_ATTEMPTS):
         try:
-            return await asyncio.to_thread(_search_sync, query, max_results)
+            async with SEARCH_GATE.acquire():
+                return await asyncio.to_thread(_search_sync, query, max_results)
         except DDGSException as exc:
             logger.info("Không có kết quả tìm kiếm cho %r (lần %s): %s", query, attempt + 1, exc)
             if attempt < MAX_ATTEMPTS - 1:
