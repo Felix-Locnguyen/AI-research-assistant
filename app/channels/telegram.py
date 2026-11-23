@@ -1,10 +1,10 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.channels.base import IncomingMessage
+from app.channels.base import IncomingMessage, verify_secret_token
 from app.core.config import settings
 from app.conversation.handler import handle_message
 from app.database.connection import get_session
@@ -45,6 +45,11 @@ async def telegram_webhook(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
+    if not verify_secret_token(
+        request.headers.get("X-Telegram-Bot-Api-Secret-Token"),
+        settings.telegram_webhook_secret,
+    ):
+        raise HTTPException(status_code=403, detail="Secret token webhook không hợp lệ")
     update = await request.json()
     await process_update(update, session)
     return {"ok": True}
