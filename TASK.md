@@ -95,9 +95,9 @@ EPIC 09 - Background Queue & Scheduling
 
 Deliverable: System stays stable under many concurrent messages.
 
-[ ] T58 [High] Task Queue - set up an async message processing queue
-[ ] T59 [Medium] Retry & Dead Letter - automatic retries and failed job handling
-[ ] T60 [Medium] Rate Limiting - limit the frequency of LLM and external API calls
+[x] T58 [High] Task Queue - set up an async message processing queue
+[x] T59 [Medium] Retry & Dead Letter - automatic retries and failed job handling
+[x] T60 [Medium] Rate Limiting - limit the frequency of LLM and external API calls
 EPIC 10 - Testing
 
 Deliverable: Green test suite; code changes do not break existing features.

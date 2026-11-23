@@ -12,14 +12,15 @@ Tracker công việc chính: **TASK.md** (T01–T69 theo 11 EPIC).
 ## 2. Kiến trúc & luồng tin nhắn
 
 ```
-Telegram webhook (app/main.py) hoặc scripts/telegram_poll.py
-  → IncomingMessage (channels/base.py)
-  → conversation/handler.handle_message
+Telegram/Zalo/Messenger webhook (app/main.py) hoặc scripts/telegram_poll.py
+  → xác thực chữ ký → normalize → core/queue.enqueue (trả 200 ngay — T58)
+  → worker (1 task): handle_message (retry ≤3, 429 → dead-letter ngay — T59)
       → UserRepository / MemoryManager / ConversationRepository (lịch sử 20 tin — T31)
       → retriever.retrieve (xếp hạng ký ức theo câu hỏi) + context_builder (prompts/assistant.md)
-      → llm.generate — vòng lặp tool tối đa 3 lượt
+      → llm.generate — vòng lặp tool tối đa 3 lượt (qua LLM_GATE — T60)
            SAVE_PREFERENCE · SAVE_MEMORY · MANAGE_MEMORY · RESEARCH · REMINDER
       → lưu message → trả lời; extractor.spawn chạy nền (T32)
+  → base.send_text (retry ≤3, chỉ retry send — không chạy lại handle)
 ```
 
 **Các gói:**
@@ -33,7 +34,7 @@ Telegram webhook (app/main.py) hoặc scripts/telegram_poll.py
 | `reminders/` | `service` (CRUD + múi giờ + lặp), `notifier` (gửi theo kênh), `scheduler` (quét 60s) |
 | `research/` | `search` (ddgs), `collector` (fetch HTML + RSS), `filter` (trùng lặp/liên quan), `summarizer` |
 | `database/` | `models` (8 bảng) + `repository` (mỗi entity một repo, commit trong method) |
-| `core/` | `config` (pydantic-settings), `llm` (retry/backoff + `response_schema`), `queue` (trống — EPIC 09) |
+| `core/` | `config` (pydantic-settings), `llm` (retry/backoff + `LLM_GATE`), `queue` (async queue + retry/dead-letter, T58–T59), `ratelimit` (`RateGate`, T60) |
 
 ## 3. Trạng thái các EPIC
 
@@ -47,7 +48,7 @@ Telegram webhook (app/main.py) hoặc scripts/telegram_poll.py
 | 06 | Research agent (T38–T47) | ✅ Xong |
 | 07 | Reminder system (T48–T53) | ✅ Xong |
 | 08 | Zalo & Messenger (T54–T57) | ✅ Xong |
-| 09 | Background queue & rate limiting | ⬜ Chưa (`core/queue.py` trống) |
+| 09 | Background queue & rate limiting (T58–T60) | ✅ Xong |
 | 10 | Testing & CI | ⬜ Chưa (chưa có tests) |
 | 11 | Deployment & ops | 🟡 Một phần (Docker + `/health` có; secrets/monitoring chưa) |
 
@@ -79,18 +80,21 @@ curl localhost:8000/health
 
 Lưu ý: Gemini free-tier giới hạn ~20 request/ngày — test nhiều sẽ gặp `429 RESOURCE_EXHAUSTED`.
 Các pipeline đã có fallback: research suy giảm còn title+link, extractor nuốt lỗi, query-gen dùng
-câu hỏi gốc.
+câu hỏi gốc. Queue (EPIC 09) kiểm chứng bằng unit test + curl instant-webhook — không cần live LLM.
 
 ## 6. Việc còn lại & điểm đã biết
 
-- **EPIC 09:** `core/queue.py` (T58–T60). Hiện research chạy đồng bộ trong tool loop (giới hạn
-  `MAX_QUERIES=3`, `MAX_ARTICLES=5`) — cần queue khi tải tăng.
-- **EPIC 10/11:** tests + CI; quản lý secret, monitoring.
+- **EPIC 10/11:** tests (đã có 41 unit test nhưng chưa đủ phủ API/CI) + GitHub Actions; quản lý
+  secret, monitoring.
+- **Queue (EPIC 09):** in-memory — mất job đang chờ khi restart (webhook đã trả 200 nên platform
+  không redeliver; queue đầy → 503 để redeliver); 1 worker FIFO (giữ thứ tự hội thoại per-user —
+  tăng worker cần per-user lock); notifier/scheduler KHÔNG qua queue (gửi trực tiếp, retry theo tick).
 - **Bảo mật:** webhook đã xác thực chữ ký cả 3 kênh (Telegram secret token / Zalo `X-ZEvent-Signature` /
   Messenger `X-Hub-Signature-256`, secret trống = dev mode); `config.py` còn default password `123456`
   — không dùng cho production.
 - **Zalo:** `ZALO_OA_ACCESS_TOKEN` hết hạn ~1h, cập nhật thủ công trong `.env` (không có refresh flow);
   gửi chủ động ngoài cửa sổ 48h CS sẽ bị từ chối → scheduler thử lại tick sau.
 - **Messenger:** gửi chủ động (lời nhắc) dùng `MESSAGE_TAG` (`MESSENGER_TAG`, mặc định `ACCOUNT_UPDATE`).
-- **Kiểm chứng đã chạy:** EPIC 05/06/07/08 xác minh trực tiếp (tests 22 green + curl webhook e2e);
-  e2e chat qua LLM còn chờ quota Gemini reset (429 RESOURCE_EXHAUSTED).
+- **Kiểm chứng đã chạy:** EPIC 05/06/07/08/09 xác minh trực tiếp (tests 41 green + curl webhook e2e —
+  EPIC 09: webhook instant 9ms, worker nhận job trong log); e2e chat qua LLM còn chờ quota Gemini
+  reset (429 RESOURCE_EXHAUSTED).
