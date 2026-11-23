@@ -52,13 +52,13 @@ EPIC 05 - Memory Management
 
 Deliverable: AI remembers preferences and reuses them in later sessions.
 
-[ ] T31 [High] Short-term Memory - manage temporary conversation state
-[ ] T32 [High] Memory Extraction - extract important information from conversations
-[ ] T33 [High] Memory Validation - validate information before saving
-[ ] T34 [High] Memory Update - add, edit, and update memories
-[ ] T35 [High] Memory Retrieval - retrieve relevant memories
-[ ] T36 [Medium] Memory Cleanup - handle expired and duplicate memories
-[ ] T37 [Medium] Context Generation - generate Markdown context from stored data
+[x] T31 [High] Short-term Memory - manage temporary conversation state
+[x] T32 [High] Memory Extraction - extract important information from conversations
+[x] T33 [High] Memory Validation - validate information before saving
+[x] T34 [High] Memory Update - add, edit, and update memories
+[x] T35 [High] Memory Retrieval - retrieve relevant memories
+[x] T36 [Medium] Memory Cleanup - handle expired and duplicate memories
+[x] T37 [Medium] Context Generation - generate Markdown context from stored data
 EPIC 06 - Research Agent
 
 Deliverable: Users can ask the AI to search, filter, and synthesize information.
