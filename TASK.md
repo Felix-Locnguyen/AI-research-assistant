@@ -63,34 +63,34 @@ EPIC 06 - Research Agent
 
 Deliverable: Users can ask the AI to search, filter, and synthesize information.
 
-[ ] T38 [High] Search Integration - integrate an Internet search tool
-[ ] T39 [Medium] RSS Integration - collect information from RSS feeds
-[ ] T40 [High] Search Query Generator - generate queries based on user preferences
-[ ] T41 [High] Content Extractor - extract article content
-[ ] T42 [High] Duplicate Detection - detect duplicate articles
-[ ] T43 [High] Relevance Filter - filter content by user preferences
-[ ] T44 [High] Content Summarizer - summarize content with an LLM
-[ ] T45 [High] Source Verification - check source and publication date
-[ ] T46 [High] Article Storage - store articles in PostgreSQL
-[ ] T47 [High] Research Result Formatter - format research results
+[x] T38 [High] Search Integration - integrate an Internet search tool
+[x] T39 [Medium] RSS Integration - collect information from RSS feeds
+[x] T40 [High] Search Query Generator - generate queries based on user preferences
+[x] T41 [High] Content Extractor - extract article content
+[x] T42 [High] Duplicate Detection - detect duplicate articles
+[x] T43 [High] Relevance Filter - filter content by user preferences
+[x] T44 [High] Content Summarizer - summarize content with an LLM
+[x] T45 [High] Source Verification - check source and publication date
+[x] T46 [High] Article Storage - store articles in PostgreSQL
+[x] T47 [High] Research Result Formatter - format research results
 EPIC 07 - Reminder System
 
 Deliverable: Users receive notifications at the scheduled time.
 
-[ ] T48 [High] Reminder CRUD - create, view, edit, delete reminders
-[ ] T49 [High] Natural Language Parsing - understand reminder times from messages
-[ ] T50 [High] Scheduler - background job that periodically checks reminders
-[ ] T51 [High] Notifier - send notifications to the user's channel
-[ ] T52 [Medium] Recurring Reminders - support daily and weekly repeats
-[ ] T53 [Medium] Timezone Handling - handle user timezones
+[x] T48 [High] Reminder CRUD - create, view, edit, delete reminders
+[x] T49 [High] Natural Language Parsing - understand reminder times from messages
+[x] T50 [High] Scheduler - background job that periodically checks reminders
+[x] T51 [High] Notifier - send notifications to the user's channel
+[x] T52 [Medium] Recurring Reminders - support daily and weekly repeats
+[x] T53 [Medium] Timezone Handling - handle user timezones
 EPIC 08 - Additional Channels (Zalo & Messenger)
 
 Deliverable: The same processing flow works across all 3 channels.
 
-[ ] T54 [High] Channel Base Interface - standardize a common interface for all channels
-[ ] T55 [High] Zalo Integration - Zalo OA webhook, send/receive messages
-[ ] T56 [Medium] Messenger Integration - Facebook Messenger webhook, send/receive messages
-[ ] T57 [Medium] Channel Adapter Test - test each channel with the standard message format
+[x] T54 [High] Channel Base Interface - standardize a common interface for all channels
+[x] T55 [High] Zalo Integration - Zalo OA webhook, send/receive messages
+[x] T56 [Medium] Messenger Integration - Facebook Messenger webhook, send/receive messages
+[x] T57 [Medium] Channel Adapter Test - test each channel with the standard message format
 EPIC 09 - Background Queue & Scheduling
 
 Deliverable: System stays stable under many concurrent messages.
