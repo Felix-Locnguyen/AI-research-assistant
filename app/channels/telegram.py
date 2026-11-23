@@ -1,13 +1,11 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Request
 
 from app.channels.base import IncomingMessage, verify_secret_token
 from app.core.config import settings
-from app.conversation.handler import handle_message
-from app.database.connection import get_session
+from app.core.queue import QueueFullError, enqueue
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,7 +20,7 @@ async def send_text(chat_id: str, text: str) -> None:
         response.raise_for_status()
 
 
-async def process_update(update: dict, session: AsyncSession) -> None:
+async def process_update(update: dict) -> None:
     message = update.get("message") or {}
     text = message.get("text")
     if not text:
@@ -31,25 +29,19 @@ async def process_update(update: dict, session: AsyncSession) -> None:
     chat_id = str(message["chat"]["id"])
     username = (message.get("from") or {}).get("username")
     incoming = IncomingMessage(channel="telegram", user_id=chat_id, username=username, text=text)
-
-    reply = await handle_message(incoming, session)
-    try:
-        await send_text(chat_id, reply)
-    except httpx.HTTPError:
-        # trả 200 dù gửi lỗi để Telegram không retry làm lặp tin nhắn
-        logger.exception("Failed to send reply to telegram chat %s", chat_id)
+    enqueue(incoming)  # T58: worker sẽ handle + gửi reply
 
 
 @router.post("/webhooks/telegram")
-async def telegram_webhook(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, bool]:
+async def telegram_webhook(request: Request) -> dict[str, bool]:
     if not verify_secret_token(
         request.headers.get("X-Telegram-Bot-Api-Secret-Token"),
         settings.telegram_webhook_secret,
     ):
         raise HTTPException(status_code=403, detail="Secret token webhook không hợp lệ")
     update = await request.json()
-    await process_update(update, session)
+    try:
+        await process_update(update)
+    except QueueFullError:
+        raise HTTPException(status_code=503, detail="Hàng đợi tin nhắn đầy, thử lại sau")
     return {"ok": True}

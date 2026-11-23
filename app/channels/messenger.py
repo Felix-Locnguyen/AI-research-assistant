@@ -5,13 +5,11 @@ import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from app.channels.base import IncomingMessage, verify_hmac_signature
 from app.core.config import settings
-from app.conversation.handler import handle_message
-from app.database.connection import get_session
+from app.core.queue import QueueFullError, enqueue
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,7 +35,7 @@ async def send_text(user_id: str, text: str, proactive: bool = False) -> None:
         response.raise_for_status()
 
 
-async def process_webhook(payload: dict, session: AsyncSession) -> None:
+async def process_webhook(payload: dict) -> None:
     for entry in payload.get("entry", []):
         for event in entry.get("messaging", []):
             message = event.get("message") or {}
@@ -47,11 +45,7 @@ async def process_webhook(payload: dict, session: AsyncSession) -> None:
             if not user_id:
                 continue
             incoming = IncomingMessage(channel="messenger", user_id=user_id, username=None, text=message["text"])
-            reply = await handle_message(incoming, session)
-            try:
-                await send_text(user_id, reply)
-            except httpx.HTTPError:
-                logger.exception("Lỗi gửi trả lời qua Messenger cho user %s", user_id)
+            enqueue(incoming)  # T58: worker sẽ handle + gửi reply
 
 
 @router.get("/webhooks/messenger")
@@ -72,10 +66,7 @@ async def messenger_verify(
 
 
 @router.post("/webhooks/messenger")
-async def messenger_webhook(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, bool]:
+async def messenger_webhook(request: Request) -> dict[str, bool]:
     raw = await request.body()
     if not verify_hmac_signature(raw, request.headers.get("X-Hub-Signature-256"), settings.messenger_app_secret):
         raise HTTPException(status_code=403, detail="Chữ ký webhook Messenger không hợp lệ")
@@ -84,5 +75,8 @@ async def messenger_webhook(
     except ValueError:
         logger.warning("Messenger webhook gửi body không phải JSON hợp lệ")
         return {"ok": False}
-    await process_webhook(payload, session)
+    try:
+        await process_webhook(payload)
+    except QueueFullError:
+        raise HTTPException(status_code=503, detail="Hàng đợi tin nhắn đầy, thử lại sau")
     return {"ok": True}

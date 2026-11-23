@@ -67,8 +67,54 @@ def test_zalo_webhook_bad_signature(monkeypatch):
     body = b'{"event_name":"user_send_text"}'
     req = FakeRequest(body, {"X-ZEvent-Signature": "sha256=" + "0" * 64})
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(zalo.zalo_webhook(req, None))
+        asyncio.run(zalo.zalo_webhook(req))
     assert exc.value.status_code == 403
+
+
+def test_zalo_webhook_queue_full_503(monkeypatch):
+    from app.core.queue import QueueFullError
+
+    def _full(msg):
+        raise QueueFullError()
+
+    monkeypatch.setattr(zalo, "enqueue", _full)
+    monkeypatch.setattr(config.settings, "zalo_webhook_secret", "")  # dev mode: bỏ qua chữ ký
+    body = b'{"event_name":"user_send_text","sender":{"id":"1"},"message":{"text":"x"}}'
+    req = FakeRequest(body, {})
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(zalo.zalo_webhook(req))
+    assert exc.value.status_code == 503
+
+
+def test_telegram_webhook_queue_full_503(monkeypatch):
+    from app.channels import telegram
+    from app.core.queue import QueueFullError
+
+    def _full(msg):
+        raise QueueFullError()
+
+    monkeypatch.setattr(telegram, "enqueue", _full)
+    monkeypatch.setattr(config.settings, "telegram_webhook_secret", "")  # dev mode
+    body = b'{"message":{"text":"hi","chat":{"id":1}}}'
+    req = FakeRequest(body, {})
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(telegram.telegram_webhook(req))
+    assert exc.value.status_code == 503
+
+
+def test_messenger_webhook_queue_full_503(monkeypatch):
+    from app.core.queue import QueueFullError
+
+    def _full(msg):
+        raise QueueFullError()
+
+    monkeypatch.setattr(messenger, "enqueue", _full)
+    monkeypatch.setattr(config.settings, "messenger_app_secret", "")  # dev mode
+    body = b'{"entry":[{"messaging":[{"sender":{"id":"1"},"message":{"text":"x"}}]}]}'
+    req = FakeRequest(body, {})
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(messenger.messenger_webhook(req))
+    assert exc.value.status_code == 503
 
 
 def test_messenger_verify_handshake(monkeypatch):

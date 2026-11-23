@@ -8,13 +8,11 @@ import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Request
 
 from app.channels.base import IncomingMessage, verify_hmac_signature
 from app.core.config import settings
-from app.conversation.handler import handle_message
-from app.database.connection import get_session
+from app.core.queue import QueueFullError, enqueue
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,7 +30,7 @@ async def send_text(user_id: str, text: str) -> None:
         response.raise_for_status()
 
 
-async def process_webhook(payload: dict, session: AsyncSession) -> None:
+async def process_webhook(payload: dict) -> None:
     if payload.get("event_name") != "user_send_text":
         return  # bỏ qua các event khác (nhắn ảnh, follow, react...)
     message = payload.get("message") or {}
@@ -45,21 +43,11 @@ async def process_webhook(payload: dict, session: AsyncSession) -> None:
         return
     username = sender.get("display_name")
     incoming = IncomingMessage(channel="zalo", user_id=user_id, username=username, text=text)
-
-    reply = await handle_message(incoming, session)
-    try:
-        await send_text(user_id, reply)
-    except httpx.HTTPError:
-        # trả 200 dù gửi lỗi để Zalo không retry; ví dụ ngoài cửa sổ 48h CS sẽ rơi vào đây,
-        # tick sau của scheduler sẽ thử lại
-        logger.exception("Lỗi gửi trả lời qua Zalo cho user %s", user_id)
+    enqueue(incoming)  # T58: worker sẽ handle + gửi reply
 
 
 @router.post("/webhooks/zalo")
-async def zalo_webhook(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, bool]:
+async def zalo_webhook(request: Request) -> dict[str, bool]:
     raw = await request.body()
     if not verify_hmac_signature(raw, request.headers.get("X-ZEvent-Signature"), settings.zalo_webhook_secret):
         raise HTTPException(status_code=403, detail="Chữ ký webhook Zalo không hợp lệ")
@@ -68,5 +56,8 @@ async def zalo_webhook(
     except ValueError:
         logger.warning("Zalo webhook gửi body không phải JSON hợp lệ")
         return {"ok": False}
-    await process_webhook(payload, session)
+    try:
+        await process_webhook(payload)
+    except QueueFullError:
+        raise HTTPException(status_code=503, detail="Hàng đợi tin nhắn đầy, thử lại sau")
     return {"ok": True}

@@ -1,7 +1,8 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.channels import messenger, telegram, zalo
+from app.core.queue import QueueFullError
 
 
 def _run(coro):
@@ -9,36 +10,31 @@ def _run(coro):
 
 
 def test_telegram_text_update(monkeypatch):
-    handle = AsyncMock(return_value="đã nhận")
-    send = AsyncMock()
-    monkeypatch.setattr(telegram, "handle_message", handle)
-    monkeypatch.setattr(telegram, "send_text", send)
+    enq = MagicMock()
+    monkeypatch.setattr(telegram, "enqueue", enq)
 
     update = {"message": {"text": "hi", "chat": {"id": 123}, "from": {"username": "alice"}}}
-    _run(telegram.process_update(update, MagicMock()))
+    _run(telegram.process_update(update))
 
-    handle.assert_awaited_once()
-    incoming = handle.await_args.args[0]
+    enq.assert_called_once()
+    incoming = enq.call_args.args[0]
     assert incoming.channel == "telegram"
     assert incoming.user_id == "123"
     assert incoming.username == "alice"
     assert incoming.text == "hi"
-    send.assert_awaited_once_with("123", "đã nhận")
 
 
 def test_telegram_sticker_ignored(monkeypatch):
-    handle = AsyncMock(return_value="x")
-    monkeypatch.setattr(telegram, "handle_message", handle)
+    enq = MagicMock()
+    monkeypatch.setattr(telegram, "enqueue", enq)
 
-    _run(telegram.process_update({"message": {"sticker": {}}}, MagicMock()))
-    handle.assert_not_awaited()
+    _run(telegram.process_update({"message": {"sticker": {}}}))
+    enq.assert_not_called()
 
 
 def test_zalo_user_send_text(monkeypatch):
-    handle = AsyncMock(return_value="xin chào bạn")
-    send = AsyncMock()
-    monkeypatch.setattr(zalo, "handle_message", handle)
-    monkeypatch.setattr(zalo, "send_text", send)
+    enq = MagicMock()
+    monkeypatch.setattr(zalo, "enqueue", enq)
 
     payload = {
         "event_name": "user_send_text",
@@ -47,31 +43,28 @@ def test_zalo_user_send_text(monkeypatch):
         "message": {"text": "xin chào"},
         "timestamp": 1,
     }
-    _run(zalo.process_webhook(payload, MagicMock()))
+    _run(zalo.process_webhook(payload))
 
-    handle.assert_awaited_once()
-    incoming = handle.await_args.args[0]
+    enq.assert_called_once()
+    incoming = enq.call_args.args[0]
     assert incoming.channel == "zalo"
     assert incoming.user_id == "50123"  # id số trong JSON → str
     assert incoming.username == "Nguyễn A"
     assert incoming.text == "xin chào"
-    send.assert_awaited_once_with("50123", "xin chào bạn")
 
 
 def test_zalo_non_text_event_ignored(monkeypatch):
-    handle = AsyncMock(return_value="x")
-    monkeypatch.setattr(zalo, "handle_message", handle)
+    enq = MagicMock()
+    monkeypatch.setattr(zalo, "enqueue", enq)
 
-    _run(zalo.process_webhook({"event_name": "user_send_image", "sender": {"id": 1}}, MagicMock()))
-    _run(zalo.process_webhook({"event_name": "user_send_text", "sender": {"id": 1}, "message": {}}, MagicMock()))
-    handle.assert_not_awaited()
+    _run(zalo.process_webhook({"event_name": "user_send_image", "sender": {"id": 1}}))
+    _run(zalo.process_webhook({"event_name": "user_send_text", "sender": {"id": 1}, "message": {}}))
+    enq.assert_not_called()
 
 
 def test_messenger_mixed_events(monkeypatch):
-    handle = AsyncMock(return_value="trả lời")
-    send = AsyncMock()
-    monkeypatch.setattr(messenger, "handle_message", handle)
-    monkeypatch.setattr(messenger, "send_text", send)
+    enq = MagicMock()
+    monkeypatch.setattr(messenger, "enqueue", enq)
 
     payload = {
         "entry": [
@@ -84,21 +77,34 @@ def test_messenger_mixed_events(monkeypatch):
             }
         ]
     }
-    _run(messenger.process_webhook(payload, MagicMock()))
+    _run(messenger.process_webhook(payload))
 
-    handle.assert_awaited_once()
-    incoming = handle.await_args.args[0]
+    enq.assert_called_once()
+    incoming = enq.call_args.args[0]
     assert incoming.channel == "messenger"
     assert incoming.user_id == "3"
     assert incoming.username is None
     assert incoming.text == "hello"
-    send.assert_awaited_once_with("3", "trả lời")
 
 
 def test_messenger_empty_entry(monkeypatch):
-    handle = AsyncMock(return_value="x")
-    monkeypatch.setattr(messenger, "handle_message", handle)
+    enq = MagicMock()
+    monkeypatch.setattr(messenger, "enqueue", enq)
 
-    _run(messenger.process_webhook({"entry": []}, MagicMock()))
-    _run(messenger.process_webhook({}, MagicMock()))
-    handle.assert_not_awaited()
+    _run(messenger.process_webhook({"entry": []}))
+    _run(messenger.process_webhook({}))
+    enq.assert_not_called()
+
+
+def test_telegram_queue_full_propagates(monkeypatch):
+    def _full(msg):
+        raise QueueFullError()
+
+    monkeypatch.setattr(telegram, "enqueue", _full)
+    update = {"message": {"text": "hi", "chat": {"id": 1}, "from": {}}}
+    try:
+        _run(telegram.process_update(update))
+    except QueueFullError:
+        pass
+    else:
+        raise AssertionError("QueueFullError phải lan ra từ process_update")

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from app.channels.messenger import router as messenger_router
 from app.channels.telegram import router as telegram_router
 from app.channels.zalo import router as zalo_router
+from app.core import queue
 from app.database.connection import SessionLocal, init_db
 from app.database.repository import MemoryRepository
 from app.reminders import scheduler
@@ -45,11 +46,13 @@ async def lifespan(application: FastAPI):
     await _cleanup_expired()
     cleanup_task = asyncio.create_task(_cleanup_loop())      # T36: dọn ký ức hết hạn định kỳ
     reminder_task = asyncio.create_task(scheduler.run_loop())  # T50: quét lời nhắc đến hạn
+    queue_task = asyncio.create_task(queue.worker())           # T58: worker xử lý tin nhắn nền
     try:
         yield
     finally:
         cleanup_task.cancel()
         reminder_task.cancel()
+        queue_task.cancel()
 
 
 def create_app() -> FastAPI:
