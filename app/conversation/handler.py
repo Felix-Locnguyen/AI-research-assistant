@@ -24,7 +24,7 @@ async def handle_message(message: IncomingMessage, session) -> str:
 
     contents = build_contents(history, message.text)
     system_prompt = load_system_prompt(preferences, memories)
-    reply = await _reply(system_prompt, contents, user.id, user_repo, memory_manager)
+    reply = await _reply(system_prompt, contents, user.id, session)
 
     await conversation_repo.add_message(conversation.id, "user", message.text)
     await conversation_repo.add_message(conversation.id, "assistant", reply)
@@ -37,21 +37,20 @@ async def _reply(
     system_prompt: str,
     contents: list[dict],
     user_id: int,
-    user_repo: UserRepository,
-    memory_manager: MemoryManager,
+    session,
 ) -> str:
     for _ in range(MAX_TOOL_ROUNDS):
         response = await llm.generate(
             system_prompt,
             contents,
-            tools=[tools.SAVE_PREFERENCE, tools.SAVE_MEMORY, tools.MANAGE_MEMORY],
+            tools=[tools.SAVE_PREFERENCE, tools.SAVE_MEMORY, tools.MANAGE_MEMORY, tools.RESEARCH, tools.REMINDER],
         )
         if not response.function_calls:
             return response.text or ""
         # gửi kết quả tool ngược lại cho model để nó ra câu trả lời cuối
         contents.append(response.candidates[0].content)
         for call in response.function_calls:
-            result = await tools.execute(call, user_id, user_repo, memory_manager)
+            result = await tools.execute(call, user_id, session)
             contents.append(
                 types.Content(
                     role="user",  # API hiện tại không nhận role 'function'
