@@ -43,16 +43,20 @@ async def _cleanup_loop() -> None:
 async def lifespan(application: FastAPI):
     await init_db()          # tạo bảng khi app khởi động (T15: bỏ Alembic, dùng create_all)
     await _cleanup_expired()
-    cleanup_task = asyncio.create_task(_cleanup_loop())  # T36: dọn ký ức hết hạn định kỳ
+    cleanup_task = asyncio.create_task(_cleanup_loop())      # T36: dọn ký ức hết hạn định kỳ
+    reminder_task = asyncio.create_task(scheduler.run_loop())  # T50: quét lời nhắc đến hạn
     try:
         yield
     finally:
         cleanup_task.cancel()
+        reminder_task.cancel()
 
 
 def create_app() -> FastAPI:
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
     application.include_router(telegram_router)
+    application.include_router(zalo_router)
+    application.include_router(messenger_router)
 
     @application.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
