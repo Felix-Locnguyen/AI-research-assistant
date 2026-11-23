@@ -44,10 +44,13 @@ async def generate(
     system_prompt: str,
     contents: list[dict],
     tools: list[types.Tool] | None = None,
+    response_schema: type | dict | None = None,
 ) -> types.GenerateContentResponse:
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         tools=tools or [],
+        response_schema=response_schema,
+        response_mime_type="application/json" if response_schema else None,
     )
     for attempt in range(MAX_RETRIES):
         try:

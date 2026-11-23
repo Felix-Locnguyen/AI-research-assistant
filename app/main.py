@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import FastAPI, Request
@@ -5,21 +6,46 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from contextlib import asynccontextmanager
-from app.database.connection import init_db
+
 from app.channels.telegram import router as telegram_router
-
-
-@asynccontextmanager
-async def lifespan(application: FastAPI):
-    await init_db()          # tạo bảng khi app khởi động (T15: bỏ Alembic, dùng create_all)
-    yield
-
+from app.database.connection import SessionLocal, init_db
+from app.database.repository import MemoryRepository
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+CLEANUP_INTERVAL_SECONDS = 3600
+
+
+async def _cleanup_expired() -> None:
+    async with SessionLocal() as session:
+        removed = await MemoryRepository(session).cleanup_expired()
+        if removed:
+            logger.info("Đã dọn %s ký ức hết hạn", removed)
+
+
+async def _cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+        try:
+            await _cleanup_expired()
+        except Exception:
+            logger.exception("Lỗi khi dọn ký ức hết hạn")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    await init_db()          # tạo bảng khi app khởi động (T15: bỏ Alembic, dùng create_all)
+    await _cleanup_expired()
+    cleanup_task = asyncio.create_task(_cleanup_loop())  # T36: dọn ký ức hết hạn định kỳ
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+
 
 def create_app() -> FastAPI:
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
