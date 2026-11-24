@@ -102,10 +102,10 @@ EPIC 10 - Testing
 
 Deliverable: Green test suite; code changes do not break existing features.
 
-[ ] T61 [High] Unit Tests - per-module tests (repository, handler, memory, ...)
-[ ] T62 [High] API Tests - test FastAPI endpoints with TestClient
-[ ] T63 [Medium] Channel Mock Test - mock Telegram/Zalo/Messenger for integration tests
-[ ] T64 [Medium] CI Setup - run tests automatically (GitHub Actions)
+[x] T61 [High] Unit Tests - per-module tests (repository, handler, memory, ...)
+[x] T62 [High] API Tests - test FastAPI endpoints with TestClient
+[x] T63 [Medium] Channel Mock Test - mock Telegram/Zalo/Messenger for integration tests
+[x] T64 [Medium] CI Setup - run tests automatically (GitHub Actions)
 EPIC 11 - Deployment & Operations
 
 Deliverable: Project installs on another machine and runs reliably.

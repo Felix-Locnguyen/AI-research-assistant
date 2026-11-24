@@ -49,7 +49,7 @@ Telegram/Zalo/Messenger webhook (app/main.py) hoặc scripts/telegram_poll.py
 | 07 | Reminder system (T48–T53) | ✅ Xong |
 | 08 | Zalo & Messenger (T54–T57) | ✅ Xong |
 | 09 | Background queue & rate limiting (T58–T60) | ✅ Xong |
-| 10 | Testing & CI | ⬜ Chưa (chưa có tests) |
+| 10 | Testing & CI (T61–T64) | ✅ Xong (173 tests, CI GitHub Actions) |
 | 11 | Deployment & ops | 🟡 Một phần (Docker + `/health` có; secrets/monitoring chưa) |
 
 ## 4. Quy ước kỹ thuật (bắt buộc khi sửa code)
@@ -66,6 +66,12 @@ Telegram/Zalo/Messenger webhook (app/main.py) hoặc scripts/telegram_poll.py
 - **Task nền** (extractor / scheduler / cleanup): `asyncio.create_task` trong lifespan, mở session riêng
   mỗi lần chạy, nuốt lỗi + log, `cancel()` ở `finally`; giữ tham chiếu task để tránh bị GC.
 - **Thư viện chuyên dụng:** `ddgs` (search, có retry), `feedparser` (RSS), `beautifulsoup4` (trích HTML).
+- **Test (EPIC 10):** sync tests + `asyncio.run` (không pytest-asyncio); `tests/conftest.py` ép
+  `DATABASE_URL` → DB riêng `nexus_ai_test` TRƯỚC khi import app (engine bind lúc import) và swap
+  engine sang **NullPool** (pool mặc định dính "attached to a different loop" với asyncio.run từng test);
+  test DB gắn marker `db` + fixture `db_run(scenario)` — TOÀN BỘ scenario chạy trong MỘT loop
+  (truncate trước/sau, skip tự động khi Postgres khôngreachable); không bao giờ `with TestClient(app)`
+  (vô tình chạy lifespan); monkeypatch theo bound name trong module under test.
 - Ghi chú/hàm và nội dung người dùng: **tiếng Việt**. Namespace packages (không `__init__.py`).
 
 ## 5. Chạy & kiểm chứng
@@ -76,16 +82,23 @@ docker compose up -d            # hoặc dùng Postgres sẵn trên host
 uvicorn app.main:app --reload   # API + Telegram webhook + scheduler
 python scripts/telegram_poll.py # chế độ long-poll local
 curl localhost:8000/health
+
+# Tests (CI: .github/workflows/ci.yml — Python 3.12 + postgres:16 service)
+pytest -q                      # đủ bộ (cần Postgres — DB test riêng nexus_ai_test)
+pytest -q -m "not db"          # không cần Postgres (bỏ qua test repository/handler)
 ```
 
 Lưu ý: Gemini free-tier giới hạn ~20 request/ngày — test nhiều sẽ gặp `429 RESOURCE_EXHAUSTED`.
 Các pipeline đã có fallback: research suy giảm còn title+link, extractor nuốt lỗi, query-gen dùng
-câu hỏi gốc. Queue (EPIC 09) kiểm chứng bằng unit test + curl instant-webhook — không cần live LLM.
+câu hỏi gốc. Queue (EPIC 09) + test (EPIC 10) kiểm chứng bằng unit test + curl — không cần live LLM.
 
 ## 6. Việc còn lại & điểm đã biết
 
-- **EPIC 10/11:** tests (đã có 41 unit test nhưng chưa đủ phủ API/CI) + GitHub Actions; quản lý
-  secret, monitoring.
+- **EPIC 11:** quản lý secret (`config.py` còn default password), monitoring & alerts; T65–T68
+  (compose full-stack/secrets/README) một phần đã có.
+- **Test (EPIC 10):** 173 tests — CI `.github/workflows/ci.yml` (Python 3.12 + postgres:16 service,
+  `pip install -r requirements.txt pytest`). Lưu ý: `LLM_GATE` trong `llm.py` từng bị mất trong commit
+  `a709840` (lạc khỏi thay đổi EPIC 09) → đã khôi phục ở đầu EPIC 10.
 - **Queue (EPIC 09):** in-memory — mất job đang chờ khi restart (webhook đã trả 200 nên platform
   không redeliver; queue đầy → 503 để redeliver); 1 worker FIFO (giữ thứ tự hội thoại per-user —
   tăng worker cần per-user lock); notifier/scheduler KHÔNG qua queue (gửi trực tiếp, retry theo tick).
@@ -95,6 +108,6 @@ câu hỏi gốc. Queue (EPIC 09) kiểm chứng bằng unit test + curl instant
 - **Zalo:** `ZALO_OA_ACCESS_TOKEN` hết hạn ~1h, cập nhật thủ công trong `.env` (không có refresh flow);
   gửi chủ động ngoài cửa sổ 48h CS sẽ bị từ chối → scheduler thử lại tick sau.
 - **Messenger:** gửi chủ động (lời nhắc) dùng `MESSAGE_TAG` (`MESSENGER_TAG`, mặc định `ACCOUNT_UPDATE`).
-- **Kiểm chứng đã chạy:** EPIC 05/06/07/08/09 xác minh trực tiếp (tests 41 green + curl webhook e2e —
-  EPIC 09: webhook instant 9ms, worker nhận job trong log); e2e chat qua LLM còn chờ quota Gemini
-  reset (429 RESOURCE_EXHAUSTED).
+- **Kiểm chứng đã chạy:** EPIC 05/06/07/08/09 xác minh trực tiếp (curl webhook e2e — EPIC 09: webhook
+  instant 9ms, worker nhận job trong log); EPIC 10: 173 tests green (31 db chạy trên Postgres local,
+  142+31 skip khi không có PG); e2e chat qua LLM còn chờ quota Gemini reset (429 RESOURCE_EXHAUSTED).
