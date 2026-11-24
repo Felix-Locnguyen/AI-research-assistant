@@ -7,13 +7,14 @@ from google import genai
 from google.genai import types
 
 from app.core.config import settings
+from app.core.ratelimit import LLM_GATE
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 1  # 1s, 2s, 4s
 REQUEST_TIMEOUT_SECONDS = 30
-TRANSIENT_CODES = {500, 502, 503, 504}  
+TRANSIENT_CODES = {500, 502, 503, 504}  # 429 bỏ ra: quota hết thì retry chỉ tốn thêm quota
 
 _client: genai.Client | None = None
 
@@ -54,11 +55,14 @@ async def generate(
     )
     for attempt in range(MAX_RETRIES):
         try:
-            return await _get_client().aio.models.generate_content(
-                model=settings.gemini_model,
-                contents=contents,
-                config=config,
-            )
+            # Gate QUANH mỗi attempt API — KHÔNG bao quanh backoff sleep
+            # (nếu bao quanh sleep, task đang retry sẽ giữ gate hàng giây và chặn cả world)
+            async with LLM_GATE.acquire():
+                return await _get_client().aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=contents,
+                    config=config,
+                )
         except Exception as exc:
             if attempt == MAX_RETRIES - 1 or not _is_transient(exc):
                 raise
