@@ -12,9 +12,12 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def _clean_queue():
+    import app.main as main_mod
     job_queue._reset_for_tests()
+    main_mod._error_count = 0
     yield
     job_queue._reset_for_tests()
+    main_mod._error_count = 0
 
 
 @pytest.fixture
@@ -47,10 +50,58 @@ def _queue_snapshot() -> list:
 
 # ── health ───────────────────────────────────────────────────
 
+@pytest.mark.db
 def test_health_ok(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["db"] == "ok"
+    assert body["queue"] == {"pending": 0, "dead_letters": 0}
+    assert body["errors"] == 0
+
+
+def test_health_degraded_when_db_down(client, monkeypatch):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.main._db_ok", AsyncMock(return_value=False))
+    response = client.get("/health")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["db"] == "error"
+    assert set(body["queue"]) == {"pending", "dead_letters"}
+
+
+def test_error_count_increments_and_visible_in_health(client, dev_secrets, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.channels import telegram
+    monkeypatch.setattr(telegram, "process_update", AsyncMock(side_effect=RuntimeError("boom")))
+    c = TestClient(app, raise_server_exceptions=False)
+    r = c.post("/webhooks/telegram", json={"message": {"text": "x", "chat": {"id": 1}}})
+    assert r.status_code == 500
+    # health có thể 503 khi không PG — chỉ assert trường errors
+    h = client.get("/health")
+    assert h.json()["errors"] >= 1
+
+
+def test_request_logging_excludes_health(client, caplog):
+    import logging
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        client.get("/health")
+    assert not any("/health" in r.getMessage() for r in caplog.records)
+
+
+def test_request_logging_webhook(client, dev_secrets, caplog):
+    import logging
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        client.post(
+            "/webhooks/telegram",
+            json={"message": {"text": "x", "chat": {"id": 1}, "from": {"username": "a"}}},
+        )
+    assert any(
+        "POST /webhooks/telegram -> 200" in r.getMessage() for r in caplog.records
+    )
 
 
 # ── telegram ─────────────────────────────────────────────────

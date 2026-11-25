@@ -179,3 +179,18 @@ def test_reset_for_tests_clears_state():
     job_queue._reset_for_tests()
     assert job_queue._queue.qsize() == 0
     assert len(job_queue._dead_letters) == 0
+
+
+def test_stats_after_enqueue():
+    assert job_queue.stats() == {"pending": 0, "dead_letters": 0}
+    job_queue.enqueue(_msg())
+    assert job_queue.stats() == {"pending": 1, "dead_letters": 0}
+
+
+def test_stats_after_dead_letter(monkeypatch):
+    monkeypatch.setattr(job_queue, "RETRY_BACKOFF_SECONDS", 0)
+    monkeypatch.setattr(job_queue, "handle_message", AsyncMock(side_effect=RuntimeError("boom")))
+    monkeypatch.setattr(job_queue, "send_text", AsyncMock())
+    job_queue.enqueue(_msg())
+    _run_worker_until_idle()
+    assert job_queue.stats() == {"pending": 0, "dead_letters": 1}
