@@ -4,7 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import settings
 from app.database.models import Base
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+
+def _require_database_url() -> str:
+    """T66: fail-fast khi thiếu DATABASE_URL — cùng pattern llm.py GEMINI_API_KEY."""
+    if not settings.database_url:
+        raise RuntimeError("Thiếu DATABASE_URL trong .env (xem .env.example)")
+    return settings.database_url
+
+
+engine = create_async_engine(_require_database_url(), pool_pre_ping=True)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

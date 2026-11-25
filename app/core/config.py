@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "Nexus AI"
     env: str = "development"
-    database_url: str = "postgresql+asyncpg://postgres:123456@localhost:5432/nexus_ai"
+    database_url: str = ""   # T66: bắt buộc; fail-fast ở connection.py nếu trống
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""        # so sánh header X-Telegram-Bot-Api-Secret-Token
     zalo_oa_access_token: str = ""           # token Zalo OA — hết hạn sau ~1h, cập nhật thủ công
