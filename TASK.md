@@ -110,11 +110,11 @@ EPIC 11 - Deployment & Operations
 
 Deliverable: Project installs on another machine and runs reliably.
 
-[ ] T65 [High] Compose Full Stack - Docker Compose with app + PostgreSQL + queue
-[ ] T66 [High] Secrets Management - manage secrets safely (never commit .env)
-[ ] T67 [Medium] Health Check - system status endpoint
-[ ] T68 [Medium] Production README - installation, configuration, and run guide
-[ ] T69 [Low] Monitoring & Alerts - centralized logging and error alerts
+[x] T65 [High] Compose Full Stack - Docker Compose with app + PostgreSQL + queue
+[x] T66 [High] Secrets Management - manage secrets safely (never commit .env)
+[x] T67 [Medium] Health Check - system status endpoint
+[x] T68 [Medium] Production README - installation, configuration, and run guide
+[x] T69 [Low] Monitoring & Alerts - centralized logging and error alerts
 Suggested Sprint Order
 Sprint	Epics	Outcome
 1	01 + 02	Backend runs, DB stores users

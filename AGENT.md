@@ -34,7 +34,7 @@ Telegram/Zalo/Messenger webhook (app/main.py) hoặc scripts/telegram_poll.py
 | `reminders/` | `service` (CRUD + múi giờ + lặp), `notifier` (gửi theo kênh), `scheduler` (quét 60s) |
 | `research/` | `search` (ddgs), `collector` (fetch HTML + RSS), `filter` (trùng lặp/liên quan), `summarizer` |
 | `database/` | `models` (8 bảng) + `repository` (mỗi entity một repo, commit trong method) |
-| `core/` | `config` (pydantic-settings), `llm` (retry/backoff + `LLM_GATE`), `queue` (async queue + retry/dead-letter, T58–T59), `ratelimit` (`RateGate`, T60) |
+| `core/` | `config` (pydantic-settings), `llm` (retry/backoff + `LLM_GATE`), `queue` (async queue + retry/dead-letter, T58–T59), `ratelimit` (`RateGate`, T60), `alert` (`ALERT_WEBHOOK_URL`, T69) |
 
 ## 3. Trạng thái các EPIC
 
@@ -49,8 +49,8 @@ Telegram/Zalo/Messenger webhook (app/main.py) hoặc scripts/telegram_poll.py
 | 07 | Reminder system (T48–T53) | ✅ Xong |
 | 08 | Zalo & Messenger (T54–T57) | ✅ Xong |
 | 09 | Background queue & rate limiting (T58–T60) | ✅ Xong |
-| 10 | Testing & CI (T61–T64) | ✅ Xong (173 tests, CI GitHub Actions) |
-| 11 | Deployment & ops | 🟡 Một phần (Docker + `/health` có; secrets/monitoring chưa) |
+| 10 | Testing & CI (T61–T64) | ✅ Xong (184 tests, CI GitHub Actions) |
+| 11 | Deployment & ops (T65–T69) | ✅ Xong (compose full-stack, fail-fast DATABASE_URL, /health, README, alert tùy chọn) |
 
 ## 4. Quy ước kỹ thuật (bắt buộc khi sửa code)
 
@@ -77,15 +77,15 @@ Telegram/Zalo/Messenger webhook (app/main.py) hoặc scripts/telegram_poll.py
 ## 5. Chạy & kiểm chứng
 
 ```bash
-# .env cần: DATABASE_URL, TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, GEMINI_MODEL
-docker compose up -d            # hoặc dùng Postgres sẵn trên host
-uvicorn app.main:app --reload   # API + Telegram webhook + scheduler
+# .env cần: TELEGRAM_BOT_TOKEN, GEMINI_API_KEY (+ DATABASE_URL nếu host-run — xem .env.example)
+docker compose up -d --build   # app + Postgres; compose tự override DATABASE_URL → host `db`
+uvicorn app.main:app --reload   # host-run (cần Postgres local)
 python scripts/telegram_poll.py # chế độ long-poll local
-curl localhost:8000/health
+curl localhost:8000/health      # 200 {status,db,queue,errors} / 503 degraded
 
-# Tests (CI: .github/workflows/ci.yml — Python 3.12 + postgres:16 service)
+# Tests (CI: .github/workflows/ci.yml — 2 job: test + docker-build)
 pytest -q                      # đủ bộ (cần Postgres — DB test riêng nexus_ai_test)
-pytest -q -m "not db"          # không cần Postgres (bỏ qua test repository/handler)
+pytest -q -m "not db"          # không cần Postgres
 ```
 
 Lưu ý: Gemini free-tier giới hạn ~20 request/ngày — test nhiều sẽ gặp `429 RESOURCE_EXHAUSTED`.
@@ -94,20 +94,24 @@ câu hỏi gốc. Queue (EPIC 09) + test (EPIC 10) kiểm chứng bằng unit te
 
 ## 6. Việc còn lại & điểm đã biết
 
-- **EPIC 11:** quản lý secret (`config.py` còn default password), monitoring & alerts; T65–T68
-  (compose full-stack/secrets/README) một phần đã có.
-- **Test (EPIC 10):** 173 tests — CI `.github/workflows/ci.yml` (Python 3.12 + postgres:16 service,
-  `pip install -r requirements.txt pytest`). Lưu ý: `LLM_GATE` trong `llm.py` từng bị mất trong commit
-  `a709840` (lạc khỏi thay đổi EPIC 09) → đã khôi phục ở đầu EPIC 10.
+- **Cả 11 EPIC đã xong.** Việc lẻ: e2e chat qua LLM còn chờ quota Gemini reset; webhook secret
+  production chưa điền vào `.env` (đang dev mode); chưa có reverse proxy/TLS khi expose public.
+- **EPIC 11:** compose full-stack (healthcheck/restart/log rotation, PG chỉ `127.0.0.1`),
+  `DATABASE_URL` fail-fast khi trống (password không còn trong code), `/health` 200/503 +
+  queue stats + error counter, README tiếng Việt, alert tùy chọn `ALERT_WEBHOOK_URL` (500 + dead-letter).
+  **Đổi shape `/health`:** không còn `{"status":"ok"}` đơn giản — test `test_health_ok` đã cập nhật.
+- **Test (EPIC 10):** 184 tests — CI `.github/workflows/ci.yml` (Python 3.12 + postgres:16 service,
+  `pip install -r requirements.txt pytest` + job docker-build). Lưu ý: `LLM_GATE` trong `llm.py` từng bị
+  mất trong commit `a709840` (lạc khỏi thay đổi EPIC 09) → đã khôi phục ở đầu EPIC 10.
 - **Queue (EPIC 09):** in-memory — mất job đang chờ khi restart (webhook đã trả 200 nên platform
   không redeliver; queue đầy → 503 để redeliver); 1 worker FIFO (giữ thứ tự hội thoại per-user —
   tăng worker cần per-user lock); notifier/scheduler KHÔNG qua queue (gửi trực tiếp, retry theo tick).
 - **Bảo mật:** webhook đã xác thực chữ ký cả 3 kênh (Telegram secret token / Zalo `X-ZEvent-Signature` /
-  Messenger `X-Hub-Signature-256`, secret trống = dev mode); `config.py` còn default password `123456`
-  — không dùng cho production.
+  Messenger `X-Hub-Signature-256`, secret trống = dev mode); `database_url` mặc định `""` + fail-fast —
+  mọi secret chỉ nằm trong `.env` (không commit).
 - **Zalo:** `ZALO_OA_ACCESS_TOKEN` hết hạn ~1h, cập nhật thủ công trong `.env` (không có refresh flow);
   gửi chủ động ngoài cửa sổ 48h CS sẽ bị từ chối → scheduler thử lại tick sau.
 - **Messenger:** gửi chủ động (lời nhắc) dùng `MESSAGE_TAG` (`MESSENGER_TAG`, mặc định `ACCOUNT_UPDATE`).
-- **Kiểm chứng đã chạy:** EPIC 05/06/07/08/09 xác minh trực tiếp (curl webhook e2e — EPIC 09: webhook
-  instant 9ms, worker nhận job trong log); EPIC 10: 173 tests green (31 db chạy trên Postgres local,
-  142+31 skip khi không có PG); e2e chat qua LLM còn chờ quota Gemini reset (429 RESOURCE_EXHAUSTED).
+- **Kiểm chứng đã chạy:** EPIC 05–09 xác minh trực tiếp (curl webhook e2e); EPIC 10: 184 tests green
+  (31 db trên Postgres local, skip khi không có PG); EPIC 11: compose e2e (app+db healthy, health
+  200 → 503 khi stop db → 200 khi start lại, tz probe ok, log middleware đúng). Chờ: quota Gemini.
