@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     messenger_tag: str = "ACCOUNT_UPDATE"    # MESSAGE_TAG khi gửi chủ động ngoài cửa sổ 24h
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash"
+    alert_webhook_url: str = ""              # T69: để trống = tắt cảnh báo vận hành
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

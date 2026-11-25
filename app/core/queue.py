@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 
 from app.channels.base import IncomingMessage, send_text
 from app.conversation.handler import handle_message
+from app.core import alert
 from app.database.connection import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,9 @@ async def _process_job(message: IncomingMessage) -> None:
         raise
     except Exception as exc:
         _dead_letter(message, phase="handle", attempts=MAX_ATTEMPTS, exc=exc)
+        await alert.send_alert(
+            f"[Nexus AI] DEAD-LETTER phase=handle kênh={message.channel} user={message.user_id}: {exc}"
+        )
         return
     try:
         await _send_phase(message, reply)
@@ -142,6 +146,9 @@ async def _process_job(message: IncomingMessage) -> None:
     except Exception as exc:
         # handle đã persist lịch sử — CHỈ dead-letter phần gửi, không chạy lại handle
         _dead_letter(message, phase="send", attempts=MAX_ATTEMPTS, exc=exc)
+        await alert.send_alert(
+            f"[Nexus AI] DEAD-LETTER phase=send kênh={message.channel} user={message.user_id}: {exc}"
+        )
 
 
 async def worker() -> None:
@@ -165,3 +172,8 @@ def _reset_for_tests(maxsize: int = QUEUE_MAXSIZE) -> None:
     global _queue
     _queue = asyncio.Queue(maxsize=maxsize)
     _dead_letters.clear()
+
+
+def stats() -> dict[str, int]:
+    """T67: số liệu queue cho /health."""
+    return {"pending": _queue.qsize(), "dead_letters": len(_dead_letters)}
